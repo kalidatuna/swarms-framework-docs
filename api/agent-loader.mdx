@@ -75,6 +75,61 @@ from swarms.structs.agent_loader import AgentConfig
 
 `max_loops: auto` is accepted in every format. Keys the schema does not define are kept on the model (`model_extra`). `AgentConfig.agent_kwargs(extra=False)` returns the fields that are set as `Agent` keyword arguments; with `extra=True` it also returns the undefined keys. YAML loading uses `extra=True`, so unknown YAML keys pass through to `Agent` as custom parameters. Markdown, CSV, and JSON loading use `extra=False` and drop them.
 
+### Validate settings before loading
+
+Validate an agent definition with `AgentConfig` before passing it to a loader or writing it with `create_agent_file()`. This lets you check field types, aliases, and numeric bounds without constructing an `Agent` or executing a task.
+
+The example below parses a JSON definition and prints the normalized keyword arguments. You can use the same check on a dictionary read from a file:
+
+```python
+import json
+
+from swarms.structs.agent_loader import AgentConfig
+
+definition = json.loads('''{
+    "name": "Researcher",
+    "model": "gpt-5.4",
+    "temperature": 0,
+    "max_loops": "auto",
+    "streaming": false
+}''')
+
+config = AgentConfig.model_validate(definition)
+print(json.dumps(config.agent_kwargs(), indent=2))
+```
+
+```json
+{
+  "agent_name": "Researcher",
+  "model_name": "gpt-5.4",
+  "temperature": 0.0,
+  "max_loops": "auto",
+  "streaming_on": false
+}
+```
+
+Aliases become canonical `Agent` parameter names. Explicit `0` and `False` values are preserved, while fields whose value is `None` are omitted. Unknown keys remain in `config.model_extra`; `agent_kwargs()` excludes them unless you pass `extra=True`, as the YAML loader does.
+
+Catch pydantic's `ValidationError` to report invalid settings before you load the definition. This example changes the same definition to use a temperature above the schema's upper bound:
+
+```python
+from pydantic import ValidationError
+
+try:
+    AgentConfig.model_validate({**definition, "temperature": 2.5})
+except ValidationError as exc:
+    for error in exc.errors():
+        print(f"{error['loc'][0]}: {error['msg']}")
+```
+
+```text
+temperature: Input should be less than or equal to 2
+```
+
+<Note>
+Schema validation accepts arbitrary model names. It does not verify provider availability, credentials, tool connections, or whether a model supports your settings. Importing the module can also initialize framework dependencies; this example avoids agent construction and task execution, but does not replace an integration test.
+</Note>
+
 ## Methods
 
 ### auto()
